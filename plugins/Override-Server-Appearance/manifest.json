@@ -1,0 +1,11 @@
+{
+  "name": "Override Server Appearance",
+  "description": "Allows you to set a custom server icon and banner for any Discord server.",
+  "authors": [
+    {
+      "name": "dxckie-cell"
+    }
+  ],
+  "version": "1.0.0",
+  "main": "src/index.ts"
+}

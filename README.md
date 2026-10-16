@@ -4,16 +4,6 @@ Paste this link into the Install Plugin section of the Revenge client:
 
 <https://dxckie-cell.github.io/Override-Server-Appearance/Override-Server-Appearance/>
 
-Supports overriding the icon and banner of multiple servers. In the plugin settings, tap "+ Add server" and enter each server's ID, plus an icon image URL, a banner image URL, or both. Leave a field empty to keep that part of the server unchanged. Changes apply immediately.
+Overrides the icon and banner of any server on your device. In the plugin settings, tap "+ Add server" and enter the server's ID plus an icon URL, a banner URL, or both. Leave a field empty to keep that part unchanged. Changes apply immediately.
 
 To get a server ID, turn on Developer Mode in Discord's settings, then long-press the server and choose Copy Server ID.
-
-The bottom of the settings screen has a short Status list showing which parts of Discord the plugin found and patched.
-
-# Known Issues
-- If the Status list says "icon/banner functions NOT FOUND", this Discord build names things differently and the plugin falls back to changing the server data directly, which may not cover every screen.
-- Overrides only change what you see on your own device.
-
-# Revenge Plugin Template
-
-Created with the [Vendetta plugin template](https://github.com/vendetta-mod/Vendetta), same layout as Override User Banners.

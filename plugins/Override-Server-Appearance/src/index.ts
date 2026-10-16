@@ -1,10 +1,10 @@
-import { findByProps, findByStoreName } from "@vendetta/metro";
+import { findByProps, findByPropsAll, findByStoreName } from "@vendetta/metro";
 import { FluxDispatcher } from "@vendetta/metro/common";
 import { storage } from "@vendetta/plugin";
 
-import { resetStatus, status } from "./status";
+import { resetStatus, stats, status } from "./status";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 // placeholder hashes, only used so the UI draws an icon / banner for servers
 // that have none of their own; the real image comes from the override
@@ -122,51 +122,85 @@ function guildIdOf(first: any): string | undefined {
     return typeof first === "string" ? first : first?.id;
 }
 
-// getGuildIconURL / getGuildBannerURL and friends: hand back the override as a string
-function urlGetterWrapper(kind: Kind) {
+// builds the wrapper for one icon / banner function.
+// `source` functions return an image source ({ uri }), the others return a URL string.
+// `onGuild` functions are methods on the guild object itself, so the id comes from `this`;
+// the rest are helper functions that take the guild (or its id) as the first argument
+function makeWrapper(kind: Kind, source: boolean, onGuild: boolean) {
+    const placeholder = kind === "icon" ? PLACEHOLDER_ICON : PLACEHOLDER_BANNER;
+
     return (original: Function, self: any, args: any[]) => {
-        const override = getOverrideUrl(guildIdOf(args[0]), kind);
-        if (override) return override;
+        const target = onGuild ? self : args[0];
+        const id = guildIdOf(target);
+        stats.calls++;
 
-        // a placeholder whose override was removed must not turn into a broken image
-        const placeholder = kind === "icon" ? PLACEHOLDER_ICON : PLACEHOLDER_BANNER;
-        if (args[0]?.[kind] === placeholder) return undefined;
-
-        return original.apply(self, args);
-    };
-}
-
-// getGuildIconSource and friends: hand back an image source with the override as its uri
-function sourceGetterWrapper(kind: Kind) {
-    return (original: Function, self: any, args: any[]) => {
-        const override = getOverrideUrl(guildIdOf(args[0]), kind);
+        const override = getOverrideUrl(id, kind);
         if (override) {
+            stats[kind]++;
+            if (!source) return override;
+
             let base: any;
             try { base = original.apply(self, args); } catch { /* the override alone is enough */ }
             return { ...(base && typeof base === "object" ? base : {}), uri: override };
         }
 
-        const placeholder = kind === "icon" ? PLACEHOLDER_ICON : PLACEHOLDER_BANNER;
-        if (args[0]?.[kind] === placeholder) return undefined;
+        // a placeholder whose override was removed must not turn into a broken image
+        if (target && typeof target === "object" && target[kind] === placeholder) return undefined;
 
         return original.apply(self, args);
     };
 }
 
-const URL_GETTERS: [string, Kind][] = [
-    ["getGuildIconURL", "icon"],
-    ["getGuildBannerURL", "banner"],
+// [function name, what it is for, whether it returns an image source instead of a URL]
+const GETTERS: [string, Kind, boolean][] = [
+    ["getGuildIconURL", "icon", false],
+    ["getGuildIconSource", "icon", true],
+    ["getGuildBannerURL", "banner", false],
+    ["getGuildBannerSource", "banner", true],
 ];
 
-const SOURCE_GETTERS: [string, Kind][] = [
-    ["getGuildIconSource", "icon"],
-    ["getGuildBannerSource", "banner"],
+// the same things as methods on the guild object
+const GUILD_METHODS: [string, Kind, boolean][] = [
+    ["getIconURL", "icon", false],
+    ["getIconSource", "icon", true],
+    ["getBannerURL", "banner", false],
+    ["getBannerSource", "banner", true],
 ];
 
-function patchGetter(name: string, kind: Kind, source: boolean): boolean {
-    const mod = findByProps(name);
-    if (!mod) return false;
-    return wrap(mod, name, source ? sourceGetterWrapper(kind) : urlGetterWrapper(kind));
+// every module that exposes `name`, since the same function can be reachable through several
+function modulesWith(name: string): any[] {
+    let found: any[] = [];
+    try {
+        if (typeof findByPropsAll === "function") found = findByPropsAll(name) ?? [];
+    } catch { /* fall back to the single lookup */ }
+
+    if (!found.length) {
+        const one = findByProps(name);
+        if (one) found = [one];
+    }
+    return Array.from(new Set(found.filter(Boolean)));
+}
+
+// patches the helper functions in the icon utils; returns the names that were found
+function patchGetters(): string[] {
+    const names: string[] = [];
+    for (const [name, kind, source] of GETTERS) {
+        const patched = modulesWith(name).filter(mod => wrap(mod, name, makeWrapper(kind, source, false)));
+        if (patched.length) names.push(patched.length > 1 ? `${name} x${patched.length}` : name);
+    }
+    return names;
+}
+
+// patches the methods on the guild class, using a guild that is already loaded
+function patchGuildClass(guild: any): string[] {
+    const proto = guild && Object.getPrototypeOf(guild);
+    if (!proto || proto === Object.prototype) return [];
+
+    const names: string[] = [];
+    for (const [name, kind, source] of GUILD_METHODS) {
+        if (wrap(proto, name, makeWrapper(kind, source, true))) names.push(name);
+    }
+    return names;
 }
 
 // guild lookups: hands back the guild with placeholders on it
@@ -210,27 +244,34 @@ function applyPatches(): void {
         // nothing to clean up
     }
 
-    // icon and banner URL / source functions
-    const urlOk = URL_GETTERS.filter(([name, kind]) => patchGetter(name, kind, false)).map(([name]) => name);
-    status(`URL functions patched: ${urlOk.length ? urlOk.join(", ") : "none"}`);
+    // icon and banner helper functions (the same place the avatar plugin patches)
+    const helpers = patchGetters();
+    status(`icon/banner functions patched: ${helpers.length ? helpers.join(", ") : "NONE FOUND"}`);
 
-    const sourceOk = SOURCE_GETTERS.filter(([name, kind]) => patchGetter(name, kind, true)).map(([name]) => name);
-    status(`source functions patched: ${sourceOk.length ? sourceOk.join(", ") : "none"}`);
-
-    if (!urlOk.length && !sourceOk.length) {
-        status("icon/banner functions NOT FOUND, relying on the guild store only");
+    // the same functions as methods on the guild object
+    let guilds: any[] = [];
+    try {
+        guilds = Object.values(GuildStore.getGuilds?.() ?? {});
+    } catch {
+        // the guild list is only needed for the checks below
     }
+
+    const methods = patchGuildClass(guilds[0]);
+    status(`guild object methods patched: ${methods.length ? methods.join(", ") : "none found"}`);
 
     // guild store, so servers without an icon or banner still get one drawn
     const storeOk = wrap(GuildStore, "getGuild", guildWrapper);
     status(storeOk ? "guild store: patched" : "guild store: NOT FOUND");
 
     // guilds already loaded in memory
-    try {
-        const all = GuildStore.getGuilds?.() ?? {};
-        for (const guild of Object.values(all) as any[]) addPlaceholders(guild);
-    } catch {
-        // they are picked up on the next getGuild call
+    for (const guild of guilds) addPlaceholders(guild);
+
+    // does each configured server id match one of the servers you are in?
+    for (const entry of (storage.overrides ?? []) as ServerOverride[]) {
+        const id = entry?.id?.trim();
+        if (!id) continue;
+        const guild = guilds.find(g => g?.id === id);
+        status(guild ? `server ${id}: found (${guild.name})` : `server ${id}: NOT in your servers, check the ID`);
     }
 
     // refresh ui for every overridden server

@@ -3,7 +3,7 @@ import { Forms } from "@vendetta/ui/components";
 import { storage } from "@vendetta/plugin";
 import { useProxy } from "@vendetta/storage";
 
-import { statusLines } from "./status";
+import { statusLines, stats } from "./status";
 
 const { FormDivider, FormInput, FormRow } = Forms;
 
@@ -59,6 +59,9 @@ export default () => {
                         {line}
                     </ReactNative.Text>
                 ))}
+                <ReactNative.Text selectable style={{ color: "#999999", fontSize: 12 }}>
+                    {`since load: Discord asked for a server icon/banner ${stats.calls} times, overrides used: icon ${stats.icon}, banner ${stats.banner} (reopen this screen to refresh)`}
+                </ReactNative.Text>
             </ReactNative.View>
         </ReactNative.ScrollView>
     );

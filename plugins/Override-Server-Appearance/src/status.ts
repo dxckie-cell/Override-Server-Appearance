@@ -13,6 +13,13 @@ export function status(message: string): void {
     }
 }
 
+// how often Discord asked for a server icon / banner, and how often an override was handed back.
+// shown in settings: calls staying at 0 means the patched functions are not the ones Discord uses
+export const stats = { calls: 0, icon: 0, banner: 0 };
+
 export function resetStatus(): void {
     statusLines.length = 0;
+    stats.calls = 0;
+    stats.icon = 0;
+    stats.banner = 0;
 }
